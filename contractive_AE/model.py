@@ -127,14 +127,14 @@ class ContractiveVAE():
         #self.vae.enc_hidden    = Model(Input(tensor=enc_inps[0]), [mu, sigma, z], name='enc_hidden')
 
         # set the training parameters
-        self.vae.sig0     = sigma0*K.ones_like(sigma)
+        self.vae.sig0     = sigma0#*K.ones_like(sigma)
         self.vae.c_lambda = lam
         self.vae.kl_beta  = beta
         
         self.vae.summary()
         
     def add_loss_funcs(self):
-        self.name += "lam_%1e_sig%1f_beta_%1e"
+        self.name += "lam_%1e_sig%1f_beta_%1e"%(self.vae.c_lambda, self.vae.sig0, self.vae.kl_beta)
 
         recon_loss = K.mean(K.square(self.input - self.output), axis=(1,2,3))*128*128
 
