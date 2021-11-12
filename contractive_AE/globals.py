@@ -13,3 +13,9 @@ from tensorflow.keras.optimizers import Adam, RMSprop, Adagrad, SGD
 import netCDF4 as nc
 from keras.models import load_model
 tf.executing_eagerly()
+
+MODEL_SAVE_FOLDER = 'models/'
+
+def change_save_folder(newfolder):
+    global MODEL_SAVE_FOLDER
+    MODEL_SAVE_FOLDER = newfolder

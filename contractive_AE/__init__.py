@@ -1,2 +1,2 @@
 from .globals import *
-from .model import ContractiveVAE
+from .model import ContractiveVAE, ContractiveAE, VariationalAE
