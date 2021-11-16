@@ -17,14 +17,14 @@ class VariationalAE():
         self.batch_norm  = batch_norm
         self.batch_norm2 = batch_norm2
 
-
-    def create_model(self, sigma0=0., beta=1.e-3, dense_act='sigmoid'):
+    def create_model(self, sigma0=0., beta=1.e-3, dense_act='sigmoid', conv_act='relu'):
         hidden     = self.hidden
         conv_filt  = self.conv_filt
         latent_dim = self.latent_dim
         batch_norm = self.batch_norm
         batch_norm2 = self.batch_norm2
         self.dense_act = dense_act
+        self.conv_act  = conv_act
 
         ''' ENCODER '''
         input_shape = (128, 128, 3)
@@ -38,16 +38,17 @@ class VariationalAE():
 
         # convolution part
         for i in range(self.nconv):
+            conv_layer = Conv2D(conv_filt, (3,3), padding='same', activation=conv_act, name=f'enc_conv_{i}')
             if i==0:
-                enc_c.append(Conv2D(conv_filt, (3,3), padding='same', activation='relu')(encoder_input))
+                enc_c.append(conv_layer(encoder_input))
             else:
                 if batch_norm:
-                    enc_c.append(Conv2D(conv_filt, (3,3), padding='same', activation='relu')(enc_b[-1]))
+                    enc_c.append(conv_layer(enc_b[-1]))
                 else:
-                    enc_c.append(Conv2D(conv_filt, (3,3), padding='same', activation='relu')(enc_p[-1]))
-            enc_p.append(MaxPool2D(pool_size=(2,2), padding='same')(enc_c[-1]))
+                    enc_c.append(conv_layer(enc_p[-1]))
+            enc_p.append(MaxPool2D(pool_size=(2,2), padding='same', name=f'enc_pool_{i}')(enc_c[-1]))
             if batch_norm:
-                enc_b.append(BatchNormalization()(enc_p[-1]))
+                enc_b.append(BatchNormalization(name=f'enc_batch_norm_{i}')(enc_p[-1]))
 
         input_conv = enc_p[-1]
         
@@ -86,7 +87,7 @@ class VariationalAE():
         if len(hidden) > 0:
             for layeri in hidden[::-1]:
                 dec_inps.append(Dense(layeri, name='dense_dec_%d'%layeri, activation=self.dense_act)(dec_inps[-1]))
-        dec2 = Dense(conv_shape[1]*conv_shape[2]*conv_shape[3], activation='relu')(dec_inps[-1])
+        dec2 = Dense(conv_shape[1]*conv_shape[2]*conv_shape[3], activation=conv_act)(dec_inps[-1])
         if batch_norm2:
             dec2_1 = BatchNormalization()(dec2)
             dec3 = Reshape((conv_shape[1], conv_shape[2], conv_shape[3]))(dec2_1)
@@ -99,16 +100,18 @@ class VariationalAE():
         dec_b = []
 
         for i in range(self.nconv-1):
+            upsamp_layer = UpSampling2D((2,2), name=f'dec_upsamp_{i}')
             if i==0:
-                dec_u.append(UpSampling2D((2,2))(dec3))
+                dec_u.append(upsamp_layer(dec3))
             else:
                 if batch_norm:
-                    dec_u.append(UpSampling2D((2,2))(dec_b[-1]))
+                    dec_u.append(upsamp_layer(dec_b[-1]))
                 else:
-                    dec_u.append(UpSampling2D((2,2))(dec_c[-1]))
-            dec_c.append(Conv2DTranspose(filters=conv_filt, kernel_size=3,padding='same',activation='relu')(dec_u[-1]))
+                    dec_u.append(upsamp_layer(dec_c[-1]))
+            dec_c.append(Conv2DTranspose(filters=conv_filt, kernel_size=3, padding='same',
+                                         activation=conv_act, name=f'dec_conv_{i}')(dec_u[-1]))
             if batch_norm:
-                dec_b.append(BatchNormalization()(dec_c[-1]))
+                dec_b.append(BatchNormalization(name=f'dec_batchnorm_{i}')(dec_c[-1]))
 
 
         '''
@@ -124,12 +127,14 @@ class VariationalAE():
         dec_c3 = Conv2DTranspose(filters=conv_filt, kernel_size=3,padding='same',activation='relu')(dec_u3)
         dec_b3 = BatchNormalization()(dec_b3)
         '''
-        
+        i += 1
+        upsamp_layer = UpSampling2D((2,2), name=f'dec_upsamp_{i}')
         if batch_norm:
-            dec_u.append(UpSampling2D((2,2))(dec_b[-1]))
+            dec_u.append(upsamp_layer(dec_b[-1]))
         else:
-            dec_u.append(UpSampling2D((2,2))(dec_c[-1]))
-        decoder_output = Conv2DTranspose(filters=3, kernel_size=5, padding='same', activation='relu')(dec_u[-1])
+            dec_u.append(upsamp_layer(dec_c[-1]))
+        decoder_output = Conv2DTranspose(filters=3, kernel_size=5, padding='same', name=f'dec_conv_{i}',
+                                         activation='relu')(dec_u[-1])
         
         # Build the decoder
         self.decoder = Model(decoder_input, decoder_output, name='decoder')
@@ -184,6 +189,11 @@ class VariationalAE():
             opt = Adam(learning_rate=learning_rate)
         elif optimizer=='Adagrad':
             opt = Adagrad(learning_rate=learning_rate)
+        elif optimizer=='SGD':
+            opt = SGD(learning_rate=learning_rate, momentum=0.1, nesterov=True)
+        elif optimizer=='RMSprop':
+            opt = RMSprop(learning_rate=learning_rate)
+
         self.ae.compile(optimizer=opt)
         self.create_name()
 
@@ -199,12 +209,11 @@ class VariationalAE():
 
         self.history = self.ae.fit(data, epochs=epochs, validation_split=0.1, 
                           validation_freq=5, batch_size=batch_size, shuffle=True)
-
     def create_name(self):
         hidden_name = ''
         for layeri in self.hidden:
             hidden_name += '_%d'%layeri
-        self.name = 'vae_%dls_conv%d%s_%s'%(self.latent_dim, self.conv_filt, hidden_name, self.dense_act)
+        self.name = 'vae_%dls_%dconv%d%s_%s'%(self.latent_dim, self.nconv, self.conv_filt, hidden_name, self.dense_act)
 
         if self.batch_norm:
             self.name += "_batchnorm"
@@ -227,7 +236,8 @@ class VariationalAE():
         self.ae.decoder.load_weights(savesfolder+"decoderw.h5")
         #self.ae.load_weights(savesfolder+"VAEw.h5")
     def get_savefolder(self):
-        self.savesfolder =  f'{MODEL_SAVE_FOLDER}models-{self.name}/'
+        self.savesfolder =  f'{MODEL_SAVE_FOLDER}/{self.conv_act}/models-{self.name}/'
+        print(self.savesfolder)
         return self.savesfolder
 
 class ContractiveAE(VariationalAE):
@@ -250,13 +260,14 @@ class ContractiveAE(VariationalAE):
 
         # convolution part
         for i in range(self.nconv):
+            convi = Conv2D(conv_filt, (3,3), padding='same', activation='relu')
             if i==0:
-                enc_c.append(Conv2D(conv_filt, (3,3), padding='same', activation='relu')(encoder_input))
+                enc_c.append(convi(encoder_input))
             else:
                 if batch_norm:
-                    enc_c.append(Conv2D(conv_filt, (3,3), padding='same', activation='relu')(enc_b[-1]))
+                    enc_c.append(convi(enc_b[-1]))
                 else:
-                    enc_c.append(Conv2D(conv_filt, (3,3), padding='same', activation='relu')(enc_p[-1]))
+                    enc_c.append(convi(enc_p[-1]))
             enc_p.append(AveragePooling2D(pool_size=(2,2), padding='same')(enc_c[-1]))
             if batch_norm:
                 enc_b.append(BatchNormalization()(enc_p[-1]))
@@ -524,3 +535,545 @@ class ContractiveVAE(VariationalAE):
         self.ae.add_metric(r_loss, aggregation='mean', name='mse')
         self.ae.add_metric(kl_loss, aggregation='mean', name='kl')
         self.ae.add_metric(c_loss, aggregation='mean', name='contr')
+
+class ColorVAEdense(VariationalAE):
+    def create_model(self, sigma0=0., beta=1.e-3, dense_act='sigmoid', conv_act='tanh', pool=False):
+        hidden     = self.hidden
+        conv_filt  = self.conv_filt
+        latent_dim = self.latent_dim
+        batch_norm = self.batch_norm
+        batch_norm2 = self.batch_norm2
+        self.dense_act = dense_act
+        self.conv_act  = conv_act
+        self.pool   = pool
+
+        ''' ENCODER '''
+        input_shape = (128, 128, 3)
+
+        # Constructing encoder
+        self.input = encoder_input = Input(shape=input_shape, name='input')
+
+        reshape_layer1 = Reshape(target_shape=(*input_shape, 1), name='3d_reshape')(self.input)
+        
+        #enc_c = []
+        #enc_p = []
+        #enc_b = []
+
+        enc_layers = []
+
+        # convolution part
+        for i in range(self.nconv):
+            conv_layer = Conv3D(conv_filt, (3,3,1), padding='valid', strides=(2,2,1), 
+                                activation=conv_act, name=f'enc_conv_{i}')
+            if i==0:
+                enc_layers.append(conv_layer(reshape_layer1))
+            else:
+                if batch_norm:
+                    enc_layers.append(conv_layer(enc_layers[-1]))
+                else:
+                    enc_layers.append(conv_layer(enc_layers[-1]))
+            #if (i%2==1):
+            #    enc_layers.append(MaxPool3D(pool_size=(2,2,1), padding='same', name=f'enc_pool_{i}')(enc_layers[-1]))
+            if batch_norm:
+                enc_layers.append(BatchNormalization(name=f'enc_batch_norm_{i}')(enc_layers[-1]))
+
+        if pool:
+            enc_layers.append(AveragePooling3D(pool_size=(3,3,1), padding='valid', name=f'enc_pool')(enc_layers[-1]))
+
+        input_conv = enc_layers[-1]
+        
+        # sampling and bottleneck 
+        enc_inps = []
+        if batch_norm:
+            enc_flat = Flatten(name='flat_inp')(enc_layers[-1])
+        elif batch_norm2:
+            enc_flat1 = Flatten(name='flat_inp')(enc_layers[-1])
+            enc_flat  = BatchNormalization()(enc_flat1)
+        else:
+            enc_flat = Flatten(name='flat_inp')(enc_layers[-1])
+
+        enc_inps.append(enc_flat)
+
+        for layeri in hidden:
+            enc_inps.append(Dense(layeri, name='dense_%d'%layeri, activation=self.dense_act)(enc_inps[-1]))
+        mu = Dense(latent_dim, name='mu', activation=None)(enc_inps[-1])
+        sigma = Dense(latent_dim, name='sig',  activation=None)(enc_inps[-1])
+
+        latent_space = Lambda(compute_latent, output_shape=(latent_dim,), name='latent')([mu, sigma])
+        
+        # Build the encoder
+        self.encoder = Model(encoder_input, [mu, sigma, latent_space], name='encoder')
+
+        self.encoder.summary()
+
+        self.mu = mu; self.sigma = sigma; self.z = latent_space
+        
+        ''' DECODER '''
+        # Take the convolution shape to be used in the decoder
+        conv_shape = K.int_shape(input_conv)
+        
+        # Constructing decoder
+        dec_inps = []
+        decoder_input = Input(shape=(latent_dim,), name='dec_inp')
+        dec_inps.append(decoder_input)
+        if len(hidden) > 0:
+            for layeri in hidden[::-1]:
+                dec_inps.append(Dense(layeri, name='dense_dec_%d'%layeri, activation=self.dense_act)(dec_inps[-1]))
+        dec2 = Dense(np.prod(conv_shape[1:]), activation=conv_act)(dec_inps[-1])
+        if batch_norm2:
+            dec2_1 = BatchNormalization()(dec2)
+            dec3 = Reshape(conv_shape[1:])(dec2_1)
+        else:
+            dec3 = Reshape(conv_shape[1:])(dec2)
+
+        dec_layers = [dec3]
+
+        if pool:
+            dec_layers.append(UpSampling3D((3,3,1), name=f'dec_pool')(dec_layers[-1]))
+        
+
+        for i in range(self.nconv-1):
+            upsamp_layer = UpSampling3D((2,2,1), name=f'dec_layerspsamp_{i}')
+            #if i==0:
+            #    dec_layers.append(upsamp_layer(dec3))
+            #else:
+
+            '''
+            if i==0:
+                dec_layers.append(upsamp_layer(dec3))
+            else:
+                if i%2==0:
+                    if batch_norm:
+                        dec_layers.append(upsamp_layer(dec_layers[-1]))
+                    else:
+                        dec_layers.append(upsamp_layer(dec_layers[-1]))
+            '''
+            #dec_layers.append(convi(dec_layers[-1]))
+            
+            convi = Conv3DTranspose(filters=conv_filt, kernel_size=(3,3,1), strides=(2,2,1), padding='valid',
+                                         activation=conv_act, name=f'dec_conv_{i}')
+            dec_layers.append(convi(dec_layers[-1]))
+
+            if batch_norm:
+                dec_layers.append(BatchNormalization(name=f'dec_batchnorm_{i}')(dec_layers[-1]))
+
+        i += 1
+        '''
+        upsamp_layer = UpSampling3D((2,2,1), name=f'dec_layerspsamp_{i}')
+        if batch_norm:
+            dec_layers.append(upsamp_layer(dec_layers[-1]))
+        else:
+            dec_layers.append(upsamp_layer(dec_layers[-1]))
+        '''
+        dec_final = Conv3DTranspose(filters=1, kernel_size=(4, 4, 1), strides=(2,2,1), padding='valid', 
+                                    name=f'dec_layersonv_{i}', activation='relu')(dec_layers[-1])
+        
+        decoder_output = Reshape(target_shape=input_shape, name='3d_reshape')(dec_final)
+        # Build the decoder
+        self.decoder = Model(decoder_input, decoder_output, name='decoder')
+        self.decoder.summary()
+
+        self.output = self.decoder(self.encoder(encoder_input)[2])
+        
+
+        
+        # Build the VAE
+        self.ae = Model(encoder_input, self.output, name='VAE')
+
+        self.ae.encoder = self.encoder
+        self.ae.decoder = self.decoder
+
+        #self.ae.enc_conv_flat = Model(encoder_input, enc_inps[0], name='enc_conv_flat')
+        #self.ae.enc_hidden    = Model(Input(tensor=enc_inps[0]), [mu, sigma, z], name='enc_hidden')
+
+        # set the training parameters
+        self.ae.sig0     = sigma0#*K.ones_like(sigma)
+        self.ae.kl_beta  = beta
+        
+        self.ae.summary()
+        
+    def create_name(self):
+        hidden_name = ''
+        for layeri in self.hidden:
+            hidden_name += '_%d'%layeri
+        self.name = 'colorvae_%dls_%dconv%d%s'%(self.latent_dim, self.nconv, self.conv_filt, hidden_name)
+
+        if self.batch_norm:
+            self.name += "_batchnorm"
+        if self.batch_norm2:
+            self.name += "_batchnorm2"
+
+        if self.pool:
+            self.name += "_pool"
+
+        print(self.name)
+
+class ColorAE(VariationalAE):
+    def create_model(self, dense_act='sigmoid', conv_act='tanh', pool=False):
+        hidden     = self.hidden
+        conv_filt  = self.conv_filt
+        batch_norm = self.batch_norm
+        batch_norm2 = self.batch_norm2
+        self.dense_act = dense_act
+        self.conv_act  = conv_act
+        self.pool   = pool
+
+        ''' ENCODER '''
+        input_shape = (128, 128, 3)
+
+        # Constructing encoder
+        self.input = encoder_input = Input(shape=input_shape, name='input')
+
+        reshape_layer1 = Reshape(target_shape=(*input_shape, 1), name='3d_reshape')(self.input)
+        
+        #enc_c = []
+        #enc_p = []
+        #enc_b = []
+
+        enc_layers = []
+
+        # convolution part
+        for i in range(self.nconv):
+            conv_layer = Conv3D(conv_filt/(2**i), (3,3,1), padding='valid', strides=(2,2,1), 
+                                activation=conv_act, name=f'enc_conv_{i}')
+            if i==0:
+                enc_layers.append(conv_layer(reshape_layer1))
+            else:
+                if batch_norm:
+                    enc_layers.append(conv_layer(enc_layers[-1]))
+                else:
+                    enc_layers.append(conv_layer(enc_layers[-1]))
+            #if (i%2==1):
+            #    enc_layers.append(MaxPool3D(pool_size=(2,2,1), padding='same', name=f'enc_pool_{i}')(enc_layers[-1]))
+            if batch_norm:
+                enc_layers.append(BatchNormalization(name=f'enc_batch_norm_{i}')(enc_layers[-1]))
+
+        if pool:
+            enc_layers.append(AveragePooling3D(pool_size=(3,3,1), padding='valid', 
+                                               name=f'enc_pool')(enc_layers[-1]))
+
+        input_conv = enc_layers[-1]
+        
+        latent_space = Flatten(name='latent')(enc_layers[-1])
+        
+        # Build the encoder
+        self.encoder = Model(encoder_input, latent_space, name='encoder')
+
+        self.encoder.summary()
+
+        self.z = latent_space
+        
+        ''' DECODER '''
+        # Take the convolution shape to be used in the decoder
+        conv_shape = K.int_shape(input_conv)
+        
+        # Constructing decoder
+        dec_inps = []
+        decoder_input = Input(shape=K.int_shape(latent_space)[1:], name='dec_inp')
+        dec_inps.append(decoder_input)
+        
+        if batch_norm2:
+            dec2_1 = BatchNormalization()(decoder_input)
+            dec3 = Reshape(conv_shape[1:])(dec2_1)
+        else:
+            dec3 = Reshape(conv_shape[1:])(decoder_input)
+
+        dec_layers = [dec3]
+
+        if pool:
+            dec_layers.append(UpSampling3D((3,3,1), name=f'dec_pool')(dec_layers[-1]))
+        
+
+        for i in range(self.nconv-1):
+            upsamp_layer = UpSampling3D((2,2,1), name=f'dec_layerspsamp_{i}')
+            #if i==0:
+            #    dec_layers.append(upsamp_layer(dec3))
+            #else:
+
+            '''
+            if i==0:
+                dec_layers.append(upsamp_layer(dec3))
+            else:
+                if i%2==0:
+                    if batch_norm:
+                        dec_layers.append(upsamp_layer(dec_layers[-1]))
+                    else:
+                        dec_layers.append(upsamp_layer(dec_layers[-1]))
+            '''
+            #dec_layers.append(convi(dec_layers[-1]))
+            
+            convi = Conv3DTranspose(filters=conv_filt, kernel_size=(3,3,1), strides=(2,2,1),
+                                    padding='valid',activation=conv_act, name=f'dec_conv_{i}')
+            dec_layers.append(convi(dec_layers[-1]))
+
+            if batch_norm:
+                dec_layers.append(BatchNormalization(name=f'dec_batchnorm_{i}')(dec_layers[-1]))
+
+        i += 1
+        '''
+        upsamp_layer = UpSampling3D((2,2,1), name=f'dec_layerspsamp_{i}')
+        if batch_norm:
+            dec_layers.append(upsamp_layer(dec_layers[-1]))
+        else:
+            dec_layers.append(upsamp_layer(dec_layers[-1]))
+        '''
+        dec_final = Conv3DTranspose(filters=1, kernel_size=(4, 4, 1), strides=(2,2,1), padding='valid', 
+                                    name=f'dec_layersonv_{i}', activation='relu')(dec_layers[-1])
+        
+        decoder_output = Reshape(target_shape=input_shape, name='3d_reshape')(dec_final)
+        # Build the decoder
+        self.decoder = Model(decoder_input, decoder_output, name='decoder')
+        self.decoder.summary()
+
+        self.output = self.decoder(self.encoder(encoder_input))
+        
+
+        
+        # Build the VAE
+        self.ae = Model(encoder_input, self.output, name='AE')
+
+        self.ae.encoder = self.encoder
+        self.ae.decoder = self.decoder
+
+        #self.ae.enc_conv_flat = Model(encoder_input, enc_inps[0], name='enc_conv_flat')
+        #self.ae.enc_hidden    = Model(Input(tensor=enc_inps[0]), [mu, sigma, z], name='enc_hidden')
+        
+        self.ae.summary()
+        
+    def create_name(self):
+        hidden_name = ''
+        for layeri in self.hidden:
+            hidden_name += '_%d'%layeri
+        self.name = 'colorae_%dls_%dconv%d%s'%(self.latent_dim, self.nconv, self.conv_filt, hidden_name)
+
+        if self.batch_norm:
+            self.name += "_batchnorm"
+        if self.batch_norm2:
+            self.name += "_batchnorm2"
+
+        if self.pool:
+            self.name += "_pool"
+
+        print(self.name)
+    
+    def add_loss_funcs(self):
+        recon_loss = K.mean(K.sum(K.square(self.input - self.output), axis=(1,2)), axis=(1))#*128*128
+
+        z = self.encoder(self.input)
+        zp = self.encoder(self.output)
+
+        z_mse_loss = K.sum(K.square(z - zp), axis=1)
+
+        r_loss   = tf.nn.compute_average_loss(recon_loss)
+        z_loss   = tf.nn.compute_average_loss(z_mse_loss)
+
+        # sum of all three losses
+        loss = r_loss + z_loss# + c_loss
+
+        self.ae.add_loss(loss)
+        self.ae.add_metric(r_loss, aggregation='mean', name='mse')
+        self.ae.add_metric(z_loss, aggregation='mean', name='z')
+
+class ColorVAE(VariationalAE):
+    def create_model(self, sigma0=0., beta=1.e-3, dense_act='sigmoid', conv_act='tanh', pool=False):
+        hidden     = self.hidden
+        conv_filt  = self.conv_filt
+        latent_dim = self.latent_dim
+        batch_norm = self.batch_norm
+        batch_norm2 = self.batch_norm2
+        self.dense_act = dense_act
+        self.conv_act  = conv_act
+        self.pool   = pool
+
+        ''' ENCODER '''
+        input_shape = (128, 128, 3)
+
+        # Constructing encoder
+        self.input = encoder_input = Input(shape=input_shape, name='input')
+
+        reshape_layer1 = Reshape(target_shape=(*input_shape, 1), name='3d_reshape')(self.input)
+        
+        #enc_c = []
+        #enc_p = []
+        #enc_b = []
+
+        enc_layers = []
+
+        # convolution part
+        '''
+        for i in range(self.nconv):
+            conv_layer = Conv3D(conv_filt, (2**(3-i), 2**(3-i),1), padding='valid', strides=(2,2,1), 
+                                activation=conv_act, name=f'enc_conv_{i}')
+            if i==0:
+                enc_layers.append(conv_layer(reshape_layer1))
+            else:
+                if batch_norm:
+                    enc_layers.append(conv_layer(enc_layers[-1]))
+                else:
+                    enc_layers.append(conv_layer(enc_layers[-1]))
+            #if (i%2==1):
+            #    enc_layers.append(MaxPool3D(pool_size=(2,2,1), padding='same', name=f'enc_pool_{i}')(enc_layers[-1]))
+            if batch_norm:
+                enc_layers.append(BatchNormalization(name=f'enc_batch_norm_{i}')(enc_layers[-1]))
+
+        if pool:
+            enc_layers.append(AveragePooling3D(pool_size=(2,2,1), padding='valid', name=f'enc_pool')(enc_layers[-1]))
+        '''
+
+        enc_c1 = Conv3D(conv_filt, (4, 4, 1), padding='valid', strides=(2,2,1), 
+                            activation=conv_act, name='enc_conv_0')(reshape_layer1)
+        enc_b1 = BatchNormalization(name='enc_batch_norm_0')(enc_c1)
+
+        enc_c2 = Conv3D(conv_filt/2, (4, 4, 1), padding='valid', strides=(2,2,1), 
+                            activation=conv_act, name='enc_conv_1')(enc_b1)
+        enc_b2 = BatchNormalization(name='enc_batch_norm_1')(enc_c2)
+
+        enc_c3 = Conv3D(conv_filt/4, (2, 2, 1), padding='valid', strides=(2,2,1), 
+                            activation=conv_act, name='enc_conv_2')(enc_c2)
+        enc_b3 = BatchNormalization(name='enc_batch_norm_2')(enc_c3)
+
+        enc_c4 = Conv3D(conv_filt/4, (2, 2, 1), padding='valid', strides=(2,2, 1), 
+                            activation=conv_act, name='enc_conv_3')(enc_c3)
+        enc_b4 = BatchNormalization(name='enc_batch_norm_3')(enc_c4)
+
+        enc_c5 = Conv3D(conv_filt/4, (2, 2, 1), padding='valid', strides=(1,1,1), 
+                            activation=conv_act, name='enc_conv_4')(enc_c4)
+        enc_b5 = BatchNormalization(name='enc_batch_norm_4')(enc_c5)
+
+        enc_p  = AveragePooling3D(pool_size=(3,3,1), name='enc_pool')(enc_b5)
+
+        input_conv = enc_p
+        
+        mu = Flatten(name='mu')(enc_p)
+        sigma = Dense(K.int_shape(mu)[1], name='sig', activation=None)(Flatten()(enc_p))
+
+        latent_space = Lambda(compute_latent, output_shape=K.int_shape(mu)[1:], name='latent')([mu, sigma])
+        
+        # Build the encoder
+        self.encoder = Model(encoder_input, [mu, sigma, latent_space], name='encoder')
+
+        self.encoder.summary()
+
+        self.mu = mu; self.sigma = sigma; self.z = latent_space
+        
+        ''' DECODER '''
+        # Take the convolution shape to be used in the decoder
+        conv_shape = K.int_shape(input_conv)
+        
+        # Constructing decoder
+        dec_inps = []
+        decoder_input = Input(shape=K.int_shape(latent_space)[1:], name='dec_inp')
+        dec_inps.append(decoder_input)
+        
+        if batch_norm2:
+            dec2_1 = BatchNormalization()(decoder_input)
+            dec3 = Reshape(conv_shape[1:])(dec2_1)
+        else:
+            dec3 = Reshape(conv_shape[1:])(decoder_input)
+
+        dec_layers = [dec3]
+
+        '''
+        if pool:
+            dec_layers.append(UpSampling3D((2,2,1), name=f'dec_pool')(dec_layers[-1]))
+
+        for i in range(self.nconv-1):
+            upsamp_layer = UpSampling3D((2,2,1), name=f'dec_layerspsamp_{i}')
+            #if i==0:
+            #    dec_layers.append(upsamp_layer(dec3))
+            #else:
+
+            if i==0:
+                dec_layers.append(upsamp_layer(dec3))
+            else:
+                if i%2==0:
+                    if batch_norm:
+                        dec_layers.append(upsamp_layer(dec_layers[-1]))
+                    else:
+                        dec_layers.append(upsamp_layer(dec_layers[-1]))
+            #dec_layers.append(convi(dec_layers[-1]))
+            
+            convi = Conv3DTranspose(filters=conv_filt, kernel_size=(2**i,2**i,1), strides=(2,2,1), padding='valid',
+                                         activation=conv_act, name=f'dec_conv_{i}')
+            dec_layers.append(convi(dec_layers[-1]))
+
+            if batch_norm:
+                dec_layers.append(BatchNormalization(name=f'dec_batchnorm_{i}')(dec_layers[-1]))
+
+        i += 1
+        upsamp_layer = UpSampling3D((2,2,1), name=f'dec_layerspsamp_{i}')
+        if batch_norm:
+            dec_layers.append(upsamp_layer(dec_layers[-1]))
+        else:
+            dec_layers.append(upsamp_layer(dec_layers[-1]))
+        dec_final = Conv3DTranspose(filters=1, kernel_size=(16, 16, 1), strides=(2,2,1), padding='valid', 
+                                    name=f'dec_layersonv_{i}', activation='relu')(dec_layers[-1])
+        '''
+        
+        upsamp_layer = UpSampling3D((3,3,1), name='dec_upsamp')(dec3)
+
+        dec_c1 = Conv3DTranspose(conv_filt/4, (2, 2, 1), padding='valid', strides=(1,1,1), 
+                            activation=conv_act, name='dec_conv_0')(upsamp_layer)
+        dec_b1 = BatchNormalization(name='dec_batch_norm_0')(dec_c1)
+
+        dec_c2 = Conv3DTranspose(conv_filt/4, (2, 2, 1), padding='valid', strides=(2,2,1), 
+                            activation=conv_act, name='dec_conv_1')(dec_b1)
+        dec_b2 = BatchNormalization(name='dec_batch_norm_1')(dec_c2)
+
+        dec_c3 = Conv3DTranspose(conv_filt/4, (4, 4, 1), padding='valid', strides=(2,2,1), 
+                            activation=conv_act, name='dec_conv_2')(dec_b2)
+        dec_b3 = BatchNormalization(name='dec_batch_norm_2')(dec_c3)
+
+        dec_c4 = Conv3DTranspose(conv_filt/2, (4, 4, 1), padding='valid', strides=(2,2,1), 
+                            activation=conv_act, name='dec_conv_3')(dec_b3)
+        dec_b4 = BatchNormalization(name='dec_batch_norm_3')(dec_c4)
+
+        dec_c5 = Conv3DTranspose(conv_filt, (4, 4, 1), padding='valid', strides=(2,2,1), 
+                            activation=conv_act, name='dec_conv_4')(dec_b4)
+        dec_b5 = BatchNormalization(name='dec_batch_norm_4')(dec_c5)
+
+        dec_c6 = Conv3DTranspose(conv_filt, (6, 6, 1), padding='valid', strides=(2,2,1), 
+                            activation=conv_act, name='dec_conv_5')(dec_c5)
+        dec_b6 = BatchNormalization(name='dec_batch_norm_5')(dec_c6)
+
+        dec_c7 = Conv3D(1, (2, 2, 1), padding='valid', strides=(2,2,1), 
+                            activation=conv_act, name='dec_conv_6')(dec_b6)
+
+        decoder_output = Reshape(target_shape=input_shape, name='3d_reshape')(dec_c7)
+        # Build the decoder
+        self.decoder = Model(decoder_input, decoder_output, name='decoder')
+        self.decoder.summary()
+
+        self.output = self.decoder(self.encoder(encoder_input)[2])
+        
+        # Build the VAE
+        self.ae = Model(encoder_input, self.output, name='VAE')
+
+        self.ae.encoder = self.encoder
+        self.ae.decoder = self.decoder
+
+        #self.ae.enc_conv_flat = Model(encoder_input, enc_inps[0], name='enc_conv_flat')
+        #self.ae.enc_hidden    = Model(Input(tensor=enc_inps[0]), [mu, sigma, z], name='enc_hidden')
+
+        # set the training parameters
+        self.ae.sig0     = sigma0#*K.ones_like(sigma)
+        self.ae.kl_beta  = beta
+        
+        self.ae.summary()
+        
+    def create_name(self):
+        hidden_name = ''
+        for layeri in self.hidden:
+            hidden_name += '_%d'%layeri
+        self.name = 'colorvae2_%dls_%dconv%d%s'%(self.latent_dim, self.nconv, self.conv_filt, hidden_name)
+
+        if self.batch_norm:
+            self.name += "_batchnorm"
+        if self.batch_norm2:
+            self.name += "_batchnorm2"
+
+        if self.pool:
+            self.name += "_pool"
+
+        print(self.name)
+
