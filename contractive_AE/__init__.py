@@ -1,2 +1,3 @@
 from .globals import *
-from .model import ContractiveVAE, ContractiveAE, VariationalAE, ColorVAE, ColorAE
+from .model import *
+from .conv_models import *
