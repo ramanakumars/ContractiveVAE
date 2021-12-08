@@ -6,28 +6,31 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 latent_dim    = 128
-conv_filt     = 256
+conv_filt     = 128
 nconv         = 2
-hidden        = [64, 16]
-beta          = 0.5
-learning_rate = 1.e-3
-sigma0        = -4
+hidden        = [64, 32]
+beta          = 1.
+learning_rate = 1.e-4
+sigma0        = 0
 batch_norm    = True
 batch_norm2   = False
 pool          = False
-conv_act      = 'tanh'
+conv_act      = 'relu'
 
-with nc.Dataset('../junodata/segments_20211207.nc', 'r') as dataset:
-    data = dataset.variables['imgs'][:]
+with nc.Dataset('../junodata/segments.nc', 'r') as dataset:
+    data = dataset.variables['imgs'][:,:,:,0]
+    data = np.expand_dims(data, axis=-1)
+
 
 vae = ConvVAE(latent_dim, conv_filt, hidden, nconv, batch_norm, batch_norm2)
-vae.create_model(sigma0=sigma0, beta=beta, conv_act=conv_act, pool=pool)
+vae.create_model(conv_act=conv_act, pool=pool)
 vae.add_loss_funcs()
 vae.compile(learning_rate=learning_rate, optimizer='Adam', decay=0.)
-#vae.load()
+vae.name = "R_"+ vae.name
+vae.load()
 
-#vae.name += "_phase2"
-vae.train(data, epochs=1500, batch_size=16)
+vae.name += "_phase2"
+vae.train(data, epochs=500, batch_size=6)
 
 vae.save()
 
@@ -36,9 +39,9 @@ savesfolder = vae.savesfolder
 
 fig, ax = plt.subplots(dpi=150)
 ax.plot(range(1, vae.nepochs+1, 1), vae.history.history['loss'], 'k-', label='training')
-ax.plot(range(1, vae.nepochs+1, 1), vae.history.history['kl'], 'k-.', label='KL')
+ax.plot(range(1, vae.nepochs+1, 1), vae.history.history['kl'], 'k-.', label='z')
 ax.plot(range(5, vae.nepochs+1, 5), vae.history.history['val_loss'], 'r-', label='validation')
-ax.plot(range(5, vae.nepochs+1, 5), vae.history.history['val_kl'], 'r-.', label='val_KL')
+ax.plot(range(5, vae.nepochs+1, 5), vae.history.history['val_kl'], 'r-.', label='val_z')
 ax.set_yscale('log')
 ax.legend(loc='upper right', ncol=2)
 ax.set_xlabel(r'Epoch')
@@ -49,9 +52,9 @@ ind_all = np.asarray(range(len(data)))
 np.random.shuffle(ind_all)
 dshuffle   = data[ind_all,:,:,:]
 
-mui, sigmai, z  = vae.encoder.predict(dshuffle, batch_size=32)
-recon         = vae.ae.predict(dshuffle, batch_size=32)
-mup, sigmap, zp = vae.encoder.predict(recon, batch_size=32)
+mu, sigma, z  = vae.encoder.predict(dshuffle)
+recon         = vae.ae.predict(dshuffle)
+mup, sigmap, zp = vae.encoder.predict(recon)
 
 plt.rc('figure', facecolor='white')
 
@@ -73,19 +76,6 @@ for i in range(nz):
 plt.xlabel(r'$z$')
 plt.savefig(savesfolder+"z.png")
 
-plt.figure(dpi=150)
-for i in range(nz):
-    plt.hist(mui[(i*dz):(i+1)*dz,:].flatten(), bins=50, histtype='step')
-# plt.yscale('log')
-plt.xlabel(r'$\mu$')
-plt.savefig(savesfolder+"mu.png")
-
-plt.figure(dpi=150)
-for i in range(nz):
-    plt.hist(sigmai[(i*dz):(i+1)*dz,:].flatten(), bins=50, histtype='step')
-# plt.yscale('log')
-plt.xlabel(r'$\sigma$')
-plt.savefig(savesfolder+"sig.png")
 
 data_recon = vae.ae.predict(data[:5,:,:,:])
 fig, axs = plt.subplots(2, 5)
@@ -96,3 +86,4 @@ for i in range(5):
     axs[1,i].axis('off')
 
 plt.savefig(savesfolder+"recon.png")
+

@@ -10,7 +10,7 @@ conv_filt     = 2048
 nconv         = 3
 hidden        = [1024, 256, 24]
 beta          = 1.
-learning_rate = 5.e-5
+learning_rate = 1.e-4
 sigma0        = -4
 batch_norm    = True
 batch_norm2   = False
@@ -24,9 +24,9 @@ vae = ColorVAE(latent_dim, conv_filt, hidden, nconv, batch_norm, batch_norm2)
 vae.create_model(sigma0=sigma0, beta=beta, conv_act=conv_act, pool=pool)
 vae.add_loss_funcs()
 vae.compile(learning_rate=learning_rate, optimizer='Adam')
-#vae.load()
+vae.load()
 
-#vae.name += "_phase2"
+vae.name += "_phase2"
 vae.train(data, epochs=500, batch_size=32)
 
 vae.save()

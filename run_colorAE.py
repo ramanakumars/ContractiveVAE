@@ -7,15 +7,15 @@ import numpy as np
 
 latent_dim    = 128
 conv_filt     = 2048
-nconv         = 5
-hidden        = [2048, 1024, 512, 128, 16]
+nconv         = 3
+hidden        = [512, 128, 16]
 beta          = 1.
 learning_rate = 1.e-5
 sigma0        = -4
 batch_norm    = True
 batch_norm2   = False
 pool          = False
-conv_act      = 'LeakyReLU'
+conv_act      = 'tanh'
 
 with nc.Dataset('../junodata/segments.nc', 'r') as dataset:
     data = dataset.variables['imgs'][:]
