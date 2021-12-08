@@ -176,13 +176,13 @@ class VariationalAE():
         self.ae.add_metric(r_loss, aggregation='mean', name='mse')
         self.ae.add_metric(kl_loss, aggregation='mean', name='kl')
 
-    def compile(self, learning_rate=0.0001, optimizer='Adam'):
+    def compile(self, learning_rate=0.0001, optimizer='Adam', decay=0.0):
         if optimizer=='Adam':
-            opt = Adam(learning_rate=learning_rate)
+            opt = Adam(learning_rate=learning_rate, decay=decay)
         elif optimizer=='Adagrad':
             opt = Adagrad(learning_rate=learning_rate)
         elif optimizer=='SGD':
-            opt = SGD(learning_rate=learning_rate, momentum=0.1, nesterov=True)
+            opt = SGD(learning_rate=learning_rate, momentum=0.9, nesterov=True, decay=decay)
         elif optimizer=='RMSprop':
             opt = RMSprop(learning_rate=learning_rate)
 

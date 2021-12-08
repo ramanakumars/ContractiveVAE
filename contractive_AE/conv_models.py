@@ -1,6 +1,7 @@
 from .globals import *
 from .model import VariationalAE
 
+
 class ColorAE(VariationalAE):
     def create_model(self, conv_act='tanh', pool=False):
         hidden     = self.hidden
@@ -327,7 +328,8 @@ class ConvVAE(VariationalAE):
         input_conv = enc_layers[-1]
         
         mu = Flatten(name='mu')(enc_layers[-1])
-        sigma = Dense(K.int_shape(mu)[1], name='sig', activation=None)(Flatten()(enc_layers[-1]))
+        #sigma = Dense(K.int_shape(mu)[1], name='sig', activation=None)(Flatten()(enc_layers[-1]))
+        sigma = tf.ones_like(mu, name='sigma')*sigma0
 
         latent_space = Lambda(compute_latent, output_shape=K.int_shape(mu)[1:], name='latent')([mu, sigma])
         
@@ -425,7 +427,7 @@ class ConvAE(VariationalAE):
 
         self.encoder.summary()
 
-        self.mu = mu; self.sigma = sigma; self.z = latent_space
+        self.z = latent_space
         
         ''' DECODER '''
         # Take the convolution shape to be used in the decoder
@@ -450,7 +452,7 @@ class ConvAE(VariationalAE):
         self.decoder = Model(decoder_input, decoder_output, name='decoder')
         self.decoder.summary()
 
-        self.output = self.decoder(self.encoder(encoder_input)[2])
+        self.output = self.decoder(self.encoder(encoder_input))
         
         # Build the VAE
         self.ae = Model(encoder_input, self.output, name='VAE')
@@ -478,7 +480,7 @@ class ConvAE(VariationalAE):
         print(self.name)
     
     def add_loss_funcs(self):
-        recon_loss = K.mean(K.sum(K.square(self.input - self.output), axis=(1,2)), axis=(1))#*128*128
+        recon_loss = K.mean(K.sum(K.abs(self.input - self.output), axis=(1,2)), axis=(1))#*128*128
 
         z = self.encoder(self.input)
         zp = self.encoder(self.output)
