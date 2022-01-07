@@ -188,6 +188,23 @@ class VariationalAE():
 
         self.ae.compile(optimizer=opt)
         self.create_name()
+    
+    def create_lr_scheduler(self, learning_rate, lr_drop, lr_drop_frequency):
+        self.learning_rate = learning_rate
+        self.lr_drop       = lr_drop
+        self.lr_drop_frequency = lr_drop_frequency
+        
+        self.lr_scheduler = LearningRateScheduler(self.rate_decay)
+
+    def rate_decay(self, epoch):
+        initial = self.learning_rate
+        drop    = self.lr_drop
+        nepoch  = self.lr_drop_frequency
+
+        lrate = initial*(drop**np.floor((1+epoch)/nepoch))
+
+        return lrate
+
 
     def train(self, data, epochs=300, batch_size=10):
 
@@ -199,7 +216,13 @@ class VariationalAE():
         if not os.path.exists(savesfolder):
             os.mkdir(savesfolder)
 
-        self.history = self.ae.fit(data, epochs=epochs, validation_split=0.1, 
+        if hasattr(self, 'lr_scheduler'):
+            print("Using Learning Rate Scheduler")
+            self.history = self.ae.fit(data, epochs=epochs, validation_split=0.1,
+                            callbacks=[self.lr_scheduler], validation_freq=5, 
+                            batch_size=batch_size, shuffle=True)
+        else:
+            self.history = self.ae.fit(data, epochs=epochs, validation_split=0.1, 
                           validation_freq=5, batch_size=batch_size, shuffle=True)
     def create_name(self):
         hidden_name = ''

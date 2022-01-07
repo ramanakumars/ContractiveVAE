@@ -6,18 +6,18 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 latent_dim    = 128
-conv_filt     = 256
+conv_filt     = 512
 nconv         = 2
-hidden        = [256, 128]
+hidden        = [128, 16]
 beta          = 0.5
-learning_rate = 1.e-2
+learning_rate = 1.e-3
 sigma0        = -2
 batch_norm    = True
 batch_norm2   = False
 pool          = False
-conv_act      = 'relu'
+conv_act      = 'tanh'
 
-with nc.Dataset('../junodata/segments_new.nc', 'r') as dataset:
+with nc.Dataset('../junodata/segments_20211229.nc', 'r') as dataset:
     data = dataset.variables['imgs'][:]
 
 vae = ConvAE(latent_dim, conv_filt, hidden, nconv, batch_norm, batch_norm2)
@@ -27,7 +27,7 @@ vae.compile(learning_rate=learning_rate, optimizer='Adam', decay=0.0)
 #vae.load()
 
 #vae.name += "_phase2"
-vae.train(data, epochs=500, batch_size=32)
+vae.train(data, epochs=1500, batch_size=32)
 
 vae.save()
 

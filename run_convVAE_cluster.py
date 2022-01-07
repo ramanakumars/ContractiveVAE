@@ -1,38 +1,37 @@
 #import os
 #os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
-from contractive_AE import ConvVAE
+from contractive_AE import ConvVAE_DEC
 import netCDF4 as nc
 import matplotlib.pyplot as plt
 import numpy as np
-
 latent_dim    = 128
 conv_filt     = 512
 nconv         = 2
 hidden        = [128, 16]
 beta          = 0.5
 learning_rate = 1.e-3
-sigma0        = 0.
+sigma0        = -4.
 batch_norm    = True
 batch_norm2   = False
 pool          = False
-conv_act      = 'tanh'
+conv_act      = 'relu'
 
-with nc.Dataset('../junodata/segments_20211229.nc', 'r') as dataset:
-    data = dataset.variables['imgs'][:]
+batch_size=64
 
-#data_augment = data[:,::-1,::-1,:]
-#data_new = np.vstack((data, data_augment))
-#print(data_new.shape)
-
-vae = ConvVAE(latent_dim, conv_filt, hidden, nconv, batch_norm, batch_norm2)
+vae = ConvVAE_DEC(latent_dim, conv_filt, hidden, nconv, batch_norm, batch_norm2)
+vae.n_centroid = 15
 vae.create_model(sigma0=sigma0, beta=beta, conv_act=conv_act, pool=pool)
 vae.add_loss_funcs()
 vae.compile(learning_rate=learning_rate, optimizer='Adam', decay=0.)
 #vae.create_lr_scheduler(learning_rate, 0.95, 30)
 #vae.load()
 
-vae.name += "_sig0"
-vae.train(data, epochs=1500, batch_size=32)
+#vae.name += "_sig0"
+
+with nc.Dataset('../junodata/segments_20211229.nc', 'r') as dataset:
+    data = dataset.variables['imgs'][:]
+
+vae.train(data, epochs=1500, batch_size=batch_size)
 
 vae.save()
 
@@ -102,3 +101,4 @@ for i in range(5):
 
 plt.tight_layout()
 plt.savefig(savesfolder+"recon.png", bbox_inches='tight')
+

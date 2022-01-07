@@ -3,17 +3,20 @@ import random
 import numpy as np
 from glob import glob
 import matplotlib.pyplot as plt
-import tensorflow as tf#; tf.compat.v1.disable_eager_execution()
-from tensorflow.keras.layers import Input, Conv2D, Flatten, Dense, Conv2DTranspose, Reshape, \
+import tensorflow as tf; tf.compat.v1.disable_eager_execution()
+from keras.layers import Layer, Input, Conv2D, Flatten, Dense, Conv2DTranspose, Reshape, \
     Conv3D, UpSampling3D, Conv3DTranspose, MaxPool3D, Activation, BatchNormalization, LeakyReLU, \
-  Dropout, MaxPool2D, UpSampling2D, Lambda, AveragePooling2D, Add, AveragePooling3D, Cropping2D
-from tensorflow.keras.models import Model
-from tensorflow.keras import backend as K
+    Dropout, MaxPool2D, UpSampling2D, Lambda, AveragePooling2D, Add, AveragePooling3D, Cropping2D, \
+    RepeatVector, Permute
+from keras.models import Model
+from keras import metrics
+from keras import backend as K
+from keras.callbacks import LearningRateScheduler
 from tensorflow.keras.optimizers import Adam, RMSprop, Adagrad, SGD
-from tensorflow.keras import regularizers
+from keras import regularizers
 import netCDF4 as nc
 from keras.models import load_model
-tf.executing_eagerly()
+#tf.executing_eagerly()
 
 MODEL_SAVE_FOLDER = os.environ.get('MODEL_SAVE_FOLDER', 'models/')
 L2_LOSS = 1.e-3
@@ -262,3 +265,4 @@ def decoder_layers2D(dec_inp, conv_filt, conv_act, hidden):
     dec_layers.append(Cropping2D(((3,4), (3,4)))(dec_layers[-1]))
 
     return dec_layers
+
